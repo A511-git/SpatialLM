@@ -3,7 +3,7 @@ name = "spatiallm"
 version = "0.1.1"
 description = "SpatialLM: Training Large Language Models for Structured Indoor Modeling"
 authors = [{ name = "ManyCore Research Team" }]
-license = { text = "Llama3.2" }
+license-files = ["LICENSE.txt"]
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
 dependencies = [
@@ -45,6 +45,9 @@ training = [
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["spatiallm*"]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
