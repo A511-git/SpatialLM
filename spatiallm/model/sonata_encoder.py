@@ -730,7 +730,7 @@ class GridPooling(PointModule):
         if "split" in point.keys():
             point_dict["split"] = point.split
         if "color" in point.keys():
-            point_dict["color"] = torch_scatter.segment_csr(
+            point_dict["color"] = segment_csr(
                 point.color[indices], idx_ptr, reduce="mean"
             )
         if "grid_size" in point.keys():
