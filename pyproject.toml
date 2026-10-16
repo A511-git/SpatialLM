@@ -7,8 +7,8 @@ license-files = ["LICENSE.txt"]
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
 dependencies = [
-    "torch>=2.4.0",
-    "torchvision>=0.19.0",
+    "torch>=2.4.0,<=2.4.1",
+    "torchvision>=0.19.0,<=0.19.1",
     "torch-scatter",
     "transformers>=4.41.2,<=4.46.1",
     "tokenizers>=0.19.0,<0.20.4",

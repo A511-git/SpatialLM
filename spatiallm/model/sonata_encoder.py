@@ -27,7 +27,39 @@ from addict import Dict
 import torch
 import torch.nn as nn
 import spconv.pytorch as spconv
-import torch_scatter
+try:
+    import torch_scatter
+except (ImportError, OSError):
+    torch_scatter = None
+
+
+def segment_csr(src, idx_ptr, reduce="mean"):
+    if torch_scatter is not None:
+        try:
+            return torch_scatter.segment_csr(src, idx_ptr, reduce=reduce)
+        except (AttributeError, OSError, RuntimeError):
+            pass
+    num_segments = len(idx_ptr) - 1
+    counts = idx_ptr[1:] - idx_ptr[:-1]
+    cluster = torch.repeat_interleave(
+        torch.arange(num_segments, device=src.device), counts
+    )
+    reduce_mode = (
+        "amax"
+        if reduce == "max"
+        else ("sum" if reduce in ("add", "sum") else "mean")
+    )
+    out = torch.zeros(
+        (num_segments, src.shape[-1]), dtype=src.dtype, device=src.device
+    )
+    return out.scatter_reduce(
+        0,
+        cluster.unsqueeze(-1).expand_as(src),
+        src,
+        reduce=reduce_mode,
+        include_self=False,
+    )
+
 from timm.layers import DropPath
 
 try:
@@ -676,17 +708,17 @@ class GridPooling(PointModule):
         # head_indices of each cluster, for reduce attr e.g. code, batch
         head_indices = indices[idx_ptr[:-1]]
         point_dict = Dict(
-            feat=torch_scatter.segment_csr(
+            feat=segment_csr(
                 self.proj(point.feat)[indices], idx_ptr, reduce=self.reduce
             ),
-            coord=torch_scatter.segment_csr(
+            coord=segment_csr(
                 point.coord[indices], idx_ptr, reduce="mean"
             ),
             grid_coord=grid_coord,
             batch=point.batch[head_indices],
         )
         if "origin_coord" in point.keys():
-            point_dict["origin_coord"] = torch_scatter.segment_csr(
+            point_dict["origin_coord"] = segment_csr(
                 point.origin_coord[indices], idx_ptr, reduce="mean"
             )
         if "condition" in point.keys():
