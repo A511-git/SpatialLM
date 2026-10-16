@@ -221,12 +221,21 @@ if __name__ == "__main__":
         ],
         help="A list of categories of objects to detect. If not specified, all categories will be detected.",
     )
+    DEFAULT_CODE_TEMPLATE = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "code_template.txt"
+    )
     parser.add_argument(
         "-t",
         "--code_template_file",
         type=str,
-        default="code_template.txt",
+        default=DEFAULT_CODE_TEMPLATE,
         help="Path to the code template file",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="The device to use for inference ('cuda' or 'cpu')",
     )
     parser.add_argument(
         "--top_k",
@@ -277,7 +286,7 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path, torch_dtype=getattr(torch, args.inference_dtype)
     )
-    model.to("cuda")
+    model.to(args.device)
     model.set_point_backbone_dtype(torch.float32)
     model.eval()
 

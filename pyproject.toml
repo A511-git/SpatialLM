@@ -1,53 +1,55 @@
-[tool.poetry]
+[project]
 name = "spatiallm"
 version = "0.1.1"
 description = "SpatialLM: Training Large Language Models for Structured Indoor Modeling"
-authors = ["ManyCore Research Team"]
-license = "Llama3.2"
+authors = [{ name = "ManyCore Research Team" }]
+license = { text = "Llama3.2" }
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = ">=3.10,<=3.12"
-torch = { version = "^2.4.1+cu124", source = "pytorch" }
-torchvision = { version = "^0.19.1+cu124", source = "pytorch" }
-torchaudio = { version = "^2.4.1+cu124", source = "pytorch" }
-transformers = ">=4.41.2,<=4.46.1"
-safetensors = "^0.4.5"
-pandas = "^2.2.3"
-einops = "^0.8.1"
-numpy = "^1.26"
-scipy = "^1.15.2"
-scikit-learn = "^1.6.1"
-toml = "^0.10.2"
-tokenizers = ">=0.19.0,<0.20.4"
-huggingface_hub = ">=0.25.0"
-rerun-sdk = "^0.21.0"
-shapely = "^2.0.7"
-bbox = "^0.9.4"
-terminaltables = "^3.1.10"
-open3d = "^0.18.0"
-nvidia-cudnn-cu12 = "*"
-nvidia-nccl-cu12 = "*"
-poethepoet = { extras = ["poetry-plugin"], version = "^0.33.1" }
-addict = "^2.4.0"
-
-[tool.poe.tasks]
-install-torchsparse = "pip install git+https://github.com/mit-han-lab/torchsparse.git"
-install-flash-attn = "pip install ninja flash-attn --no-build-isolation"
-install-torch-scatter = "pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu124.html"
-install-spconv = "pip install timm spconv-cu120"
-install-sonata = [
-    "install-flash-attn",
-    "install-torch-scatter",
-    "install-spconv",
+requires-python = ">=3.10,<=3.12"
+dependencies = [
+    "torch>=2.4.0",
+    "torchvision>=0.19.0",
+    "transformers>=4.41.2,<=4.46.1",
+    "tokenizers>=0.19.0,<0.20.4",
+    "safetensors>=0.4.5",
+    "pandas>=2.2.3",
+    "einops>=0.8.1",
+    "numpy>=1.26.0,<2.0.0",
+    "scipy>=1.15.0",
+    "scikit-learn>=1.6.0",
+    "toml>=0.10.2",
+    "huggingface_hub>=0.25.0",
+    "rerun-sdk>=0.21.0",
+    "shapely>=2.0.7",
+    "bbox>=0.9.4",
+    "terminaltables>=3.1.10",
+    "open3d>=0.18.0",
+    "addict>=2.4.0",
+    "spconv-cu120>=2.3.6",
+    "timm>=1.0.0",
+    "plotly>=5.0.0",
 ]
-install-training = "pip install omegaconf datasets<=3.6.0 accelerate<=1.7.0 wandb"
+
+[project.optional-dependencies]
+flash-attn = [
+    "flash-attn",
+]
+training = [
+    "omegaconf",
+    "datasets<=3.6.0",
+    "accelerate<=1.7.0",
+    "wandb",
+]
 
 [build-system]
-requires = ["poetry-core", "setuptools", "wheel", "torch"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
-[[tool.poetry.source]]
-priority = "supplemental"
-name = "pytorch"
+[[tool.uv.index]]
+name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }

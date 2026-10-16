@@ -35,6 +35,18 @@ try:
 except ImportError:
     flash_attn = None
 
+
+def is_flash_attn_supported():
+    if flash_attn is None:
+        return False
+    if not torch.cuda.is_available():
+        return False
+    try:
+        major, _ = torch.cuda.get_device_capability()
+        return major >= 8
+    except Exception:
+        return False
+
 from .serialization import encode
 
 
@@ -329,6 +341,8 @@ class SerializedAttention(PointModule):
         self.upcast_attention = upcast_attention
         self.upcast_softmax = upcast_softmax
         self.enable_rpe = enable_rpe
+        if enable_flash and not is_flash_attn_supported():
+            enable_flash = False
         self.enable_flash = enable_flash
         if enable_flash:
             assert (
@@ -340,7 +354,6 @@ class SerializedAttention(PointModule):
             assert (
                 upcast_softmax is False
             ), "Set upcast_softmax to False when enable Flash Attention"
-            assert flash_attn is not None, "Make sure flash_attn is installed."
             self.patch_size = patch_size
             self.attn_drop = attn_drop
         else:
@@ -832,6 +845,9 @@ class Sonata(PointModule, PyTorchModelHubMixin):
         num_bins=1280,
     ):
         super().__init__()
+        if enable_flash and not is_flash_attn_supported():
+            enable_flash = False
+        self.enable_flash = enable_flash
         self.num_stages = len(enc_depths)
         self.order = [order] if isinstance(order, str) else order
         self.enc_mode = enc_mode

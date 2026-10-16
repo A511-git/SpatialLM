@@ -164,5 +164,7 @@ cython_debug/
 # Output files
 *.lock
 *.txt
+!code_template.txt
+!requirements.txt
 *.rrd
 *.ply
