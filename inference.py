@@ -90,18 +90,30 @@ def generate_layout(
         conversation, add_generation_prompt=True, return_tensors="pt"
     )
     input_ids = input_ids.to(model.device)
+    attention_mask = torch.ones_like(input_ids).to(model.device)
+    pad_token_id = (
+        tokenizer.pad_token_id
+        if tokenizer.pad_token_id is not None
+        else tokenizer.eos_token_id
+    )
 
     streamer = TextIteratorStreamer(
         tokenizer, timeout=20.0, skip_prompt=True, skip_special_tokens=True
     )
 
+    do_sample = temperature > 0.05
     generate_kwargs = dict(
-        {"input_ids": input_ids, "point_clouds": point_cloud},
+        {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pad_token_id": pad_token_id,
+            "point_clouds": point_cloud,
+        },
         streamer=streamer,
         max_new_tokens=max_new_tokens,
-        do_sample=True,
+        do_sample=do_sample,
         use_cache=True,
-        temperature=temperature,
+        temperature=max(temperature, 0.01),
         top_p=top_p,
         top_k=top_k,
         num_beams=num_beams,
