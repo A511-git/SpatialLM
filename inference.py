@@ -97,38 +97,47 @@ def generate_layout(
         else tokenizer.eos_token_id
     )
 
-    streamer = TextIteratorStreamer(
-        tokenizer, timeout=20.0, skip_prompt=True, skip_special_tokens=True
-    )
-
-    do_sample = temperature > 0.05
+    do_sample = (temperature > 0.05) and (num_beams == 1)
     generate_kwargs = dict(
-        {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "pad_token_id": pad_token_id,
-            "point_clouds": point_cloud,
-        },
-        streamer=streamer,
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        pad_token_id=pad_token_id,
+        point_clouds=point_cloud,
         max_new_tokens=max_new_tokens,
         do_sample=do_sample,
         use_cache=True,
-        temperature=max(temperature, 0.01),
-        top_p=top_p,
-        top_k=top_k,
         num_beams=num_beams,
     )
-    t = Thread(target=model.generate, kwargs=generate_kwargs)
-    t.start()
 
-    print("Generating layout...\n")
-    generate_texts = []
-    for text in streamer:
-        generate_texts.append(text)
-        print(text, end="", flush=True)
-    print("\nDone!")
+    if do_sample:
+        generate_kwargs["temperature"] = float(temperature)
+        generate_kwargs["top_p"] = float(top_p)
+        generate_kwargs["top_k"] = int(top_k)
 
-    layout_str = "".join(generate_texts)
+    if num_beams == 1:
+        streamer = TextIteratorStreamer(
+            tokenizer, timeout=60.0, skip_prompt=True, skip_special_tokens=True
+        )
+        generate_kwargs["streamer"] = streamer
+        t = Thread(target=model.generate, kwargs=generate_kwargs)
+        t.start()
+
+        print("Generating layout...\n")
+        generate_texts = []
+        for text in streamer:
+            generate_texts.append(text)
+            print(text, end="", flush=True)
+        print("\nDone!")
+        t.join()
+        layout_str = "".join(generate_texts)
+    else:
+        print(f"Generating layout with beam search (num_beams={num_beams})...\n")
+        outputs = model.generate(**generate_kwargs)
+        new_tokens = outputs[0][input_ids.shape[1] :]
+        layout_str = tokenizer.decode(new_tokens, skip_special_tokens=True)
+        print(layout_str)
+        print("\nDone!")
+
     layout = Layout(layout_str)
     layout.undiscretize_and_unnormalize(num_bins=model.config.point_config["num_bins"])
     return layout
