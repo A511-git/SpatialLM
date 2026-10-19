@@ -1,4 +1,5 @@
 import os
+import sys
 import glob
 import argparse
 
@@ -11,6 +12,15 @@ from transformers import TextIteratorStreamer, set_seed
 
 from spatiallm import Layout
 from spatiallm.pcd import load_o3d_pcd, get_points_and_colors, cleanup_pcd, Compose
+
+# Integrated 3D-PointCloud-Aligner submodule
+ALIGNER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "3D-PointCloud-Aligner")
+if ALIGNER_DIR not in sys.path:
+    sys.path.insert(0, ALIGNER_DIR)
+
+from src.pipeline import PointCloudPipeline
+from src.validator import PointCloudValidator
+from render_floorplan import render_floorplan
 
 DETECT_TYPE_PROMPT = {
     "all": "Detect walls, doors, windows, boxes.",
@@ -300,6 +310,68 @@ if __name__ == "__main__":
         default=-1,
         help="The seed to use during inference, negative value means no seed",
     )
+
+    # ----------------------------------------------------
+    # Integrated 3D Point Cloud Alignment & Validation CLI
+    # ----------------------------------------------------
+    align_group = parser.add_argument_group("Integrated 3D PointCloud Aligner Options")
+    align_group.add_argument(
+        "--align",
+        action="store_true",
+        help="Automatically align input point cloud to ScanNet convention (+Z up, Manhattan walls, metric scale)",
+    )
+    align_group.add_argument(
+        "--preset",
+        type=str,
+        default=None,
+        choices=["arkit", "opencv", "opengl", "scannet"],
+        help="Camera sensor preset convention (e.g. arkit/opengl = +Y up, opencv = -Y up)",
+    )
+    align_group.add_argument(
+        "--up_axis",
+        type=str,
+        default="auto",
+        choices=["auto", "x", "-x", "y", "-y", "z", "-z"],
+        help="Vertical axis direction for alignment (default: auto)",
+    )
+    align_group.add_argument(
+        "--target_height",
+        type=float,
+        default=2.65,
+        help="Target floor-to-ceiling clearance in meters for metric scale calibration",
+    )
+    align_group.add_argument(
+        "--force_scale",
+        action="store_true",
+        help="Force scaling to target_height even if detected height is within metric range",
+    )
+    align_group.add_argument(
+        "--preview",
+        action="store_true",
+        help="Generate 3-view orthogonal diagnostic PNG preview of the aligned point cloud",
+    )
+    align_group.add_argument(
+        "--save_aligned_pcd",
+        type=str,
+        default=None,
+        help="Optional path to save the aligned point cloud (.ply) to disk",
+    )
+    align_group.add_argument(
+        "--skip_validation",
+        action="store_true",
+        help="Skip pre-flight point cloud quality & orientation validation check",
+    )
+
+    # ----------------------------------------------------
+    # Integrated Architectural Blueprint Floor Plan Rendering
+    # ----------------------------------------------------
+    render_group = parser.add_argument_group("Integrated Floor Plan Blueprint Options")
+    render_group.add_argument(
+        "--render_floorplan",
+        type=str,
+        default=None,
+        help="Path to save the rendered 2D architectural blueprint floor plan PNG (e.g. floorplan.png)",
+    )
     args = parser.parse_args()
 
     # load the model
@@ -323,6 +395,51 @@ if __name__ == "__main__":
     for point_cloud_file in tqdm(point_cloud_files):
         # load the point cloud
         point_cloud = load_o3d_pcd(point_cloud_file)
+        active_pcd_path = point_cloud_file
+
+        # ----------------------------------------------------
+        # 1. Integrated 3D Point Cloud Alignment & Validation
+        # ----------------------------------------------------
+        should_align = args.align or (args.preset is not None)
+        if should_align:
+            print(f"\n[Pipeline] Aligning '{os.path.basename(point_cloud_file)}' to ScanNet convention...")
+            preview_file = None
+            if args.preview:
+                if args.save_aligned_pcd:
+                    preview_file = os.path.splitext(args.save_aligned_pcd)[0] + "_preview.png"
+                elif os.path.splitext(args.output)[-1]:
+                    preview_file = os.path.splitext(args.output)[0] + "_preview.png"
+                else:
+                    preview_file = os.path.splitext(point_cloud_file)[0] + "_aligned_preview.png"
+
+            align_pipeline = PointCloudPipeline(
+                up_axis=args.up_axis,
+                preset=args.preset,
+                target_height=args.target_height,
+                force_scale=args.force_scale,
+                voxel_size=0.03,
+                remove_outliers=True,
+                do_preview=args.preview,
+                do_validate=not args.skip_validation,
+            )
+            point_cloud, meta = align_pipeline.process(
+                point_cloud,
+                output_path=args.save_aligned_pcd,
+                preview_path=preview_file,
+            )
+            if args.save_aligned_pcd:
+                active_pcd_path = args.save_aligned_pcd
+                print(f"[Pipeline] Saved aligned point cloud: {args.save_aligned_pcd}")
+            if preview_file:
+                print(f"[Pipeline] Saved alignment preview: {preview_file}")
+        elif not args.skip_validation:
+            is_valid, report = PointCloudValidator.validate(point_cloud)
+            if not is_valid or report.get("warnings"):
+                print(f"\n[Pre-Flight Validation Notice for {os.path.basename(point_cloud_file)}]:")
+                for w in report.get("warnings", []):
+                    print(f"  - {w}")
+                print("Tip: Pass --align or --preset arkit to automatically align the scan before inference.\n")
+
         grid_size = Layout.get_grid_size(num_bins)
 
         if not args.no_cleanup:
@@ -353,10 +470,31 @@ if __name__ == "__main__":
 
         # check if the output path is a file or directory
         if os.path.splitext(args.output)[-1]:
-            with open(args.output, "w") as f:
+            saved_layout_path = args.output
+            with open(saved_layout_path, "w") as f:
                 f.write(pred_language_string)
         else:
             output_filename = os.path.basename(point_cloud_file).replace(".ply", ".txt")
             os.makedirs(args.output, exist_ok=True)
-            with open(os.path.join(args.output, output_filename), "w") as f:
+            saved_layout_path = os.path.join(args.output, output_filename)
+            with open(saved_layout_path, "w") as f:
                 f.write(pred_language_string)
+
+        # ----------------------------------------------------
+        # 2. Integrated 2D Architectural Blueprint Floor Plan
+        # ----------------------------------------------------
+        if args.render_floorplan:
+            if os.path.splitext(args.output)[-1] or os.path.splitext(args.render_floorplan)[-1]:
+                target_floorplan_path = args.render_floorplan
+            else:
+                os.makedirs(args.render_floorplan, exist_ok=True)
+                floorplan_filename = os.path.basename(point_cloud_file).replace(".ply", "_floorplan.png")
+                target_floorplan_path = os.path.join(args.render_floorplan, floorplan_filename)
+
+            print(f"\n[Pipeline] Rendering 2D architectural blueprint floor plan...")
+            render_floorplan(
+                layout_path=saved_layout_path,
+                pcd_path=active_pcd_path,
+                output_path=target_floorplan_path,
+            )
+            print(f"[Pipeline] Architectural floor plan saved to: {target_floorplan_path}")
