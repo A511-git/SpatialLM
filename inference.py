@@ -13,13 +13,65 @@ from transformers import TextIteratorStreamer, set_seed
 from spatiallm import Layout
 from spatiallm.pcd import load_o3d_pcd, get_points_and_colors, cleanup_pcd, Compose
 
-# Integrated 3D-PointCloud-Aligner submodule
+# ----------------------------------------------------
+# Integrated 3D-PointCloud-Aligner with Auto-Recovery for Colab/Kaggle
+# ----------------------------------------------------
 ALIGNER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "3D-PointCloud-Aligner")
-if ALIGNER_DIR not in sys.path:
-    sys.path.insert(0, ALIGNER_DIR)
+ALIGNER_SRC = os.path.join(ALIGNER_DIR, "src")
 
-from src.pipeline import PointCloudPipeline
-from src.validator import PointCloudValidator
+
+def _ensure_aligner_available():
+    """Automatically initializes or clones the submodule if missing (e.g. fresh git clone or Colab git pull)."""
+    target_file = os.path.join(ALIGNER_DIR, "src", "pipeline.py")
+    if os.path.exists(target_file):
+        return
+
+    print("[Pipeline Notice] 3D-PointCloud-Aligner submodule not initialized. Auto-fetching...")
+    import subprocess
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+
+    # 1. Try git submodule update --init --recursive
+    try:
+        subprocess.run(
+            ["git", "submodule", "update", "--init", "--recursive"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        pass
+
+    # 2. If still missing, clone repository directly into ALIGNER_DIR
+    if not os.path.exists(target_file):
+        try:
+            os.makedirs(ALIGNER_DIR, exist_ok=True)
+            subprocess.run(
+                ["git", "clone", "https://github.com/A511-git/3D-PointCloud-Aligner.git", ALIGNER_DIR],
+                check=True,
+                capture_output=True,
+            )
+            print("[Pipeline Notice] Successfully fetched 3D-PointCloud-Aligner!")
+        except Exception as e:
+            print(f"[Pipeline Warning] Could not auto-fetch 3D-PointCloud-Aligner: {e}")
+
+
+_ensure_aligner_available()
+
+for p in [ALIGNER_DIR, ALIGNER_SRC]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+try:
+    from src.pipeline import PointCloudPipeline
+    from src.validator import PointCloudValidator
+except ModuleNotFoundError:
+    try:
+        from pipeline import PointCloudPipeline
+        from validator import PointCloudValidator
+    except ModuleNotFoundError:
+        PointCloudPipeline = None
+        PointCloudValidator = None
+
 from render_floorplan import render_floorplan
 
 DETECT_TYPE_PROMPT = {
@@ -411,6 +463,12 @@ if __name__ == "__main__":
                     preview_file = os.path.splitext(args.output)[0] + "_preview.png"
                 else:
                     preview_file = os.path.splitext(point_cloud_file)[0] + "_aligned_preview.png"
+
+            if PointCloudPipeline is None:
+                raise ImportError(
+                    "3D-PointCloud-Aligner could not be loaded. "
+                    "Run 'git submodule update --init --recursive' or 'pip install git+https://github.com/A511-git/3D-PointCloud-Aligner.git'."
+                )
 
             align_pipeline = PointCloudPipeline(
                 up_axis=args.up_axis,
