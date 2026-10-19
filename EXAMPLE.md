@@ -26,7 +26,14 @@ colors.append(color)
 
 In the current version of SpatialLM, input point clouds are considered axis-aligned where the z-axis is the up axis. The input point clouds should follow the ScanNet scenes orientation convension, which is "_Transforms scans to z-up alignment for scans and tries to align walls to x-y planes._" in [Alignment](https://github.com/ScanNet/ScanNet/tree/master/Alignment). Refer to [Issue #7](https://github.com/manycore-research/SpatialLM/issues/7) for more details.
 
-For now, you can choose your way to align the point cloud. We recommend you to check out [VanishingPoint Estimation](https://github.com/yanconglin/VanishingPoint_HoughTransform_GaussianSphere), [Manhattan Frame Estimation from video](https://github.com/jstraub/rtmf), Manhattan Frame Estimation from surface normals (ref paper: Globally Optimal Manhattan Frame Estimation in Real-time, Manhattan World Inference in the Space of Surface Normals) for estimating the Manhattan Frame from image, video or point cloud. And more recent methods such as [U-ARE-ME](https://github.com/callum-rhodes/U-ARE-ME), [Perspective Fields for Single Image Camera Calibration](https://github.com/jinlinyi/PerspectiveFields). Or even use tools like Blender to manually align the point cloud.
+For automated alignment, use our official [3D-PointCloud-Aligner](https://github.com/A511-git/3D-PointCloud-Aligner) directly via CLI:
+
+```bash
+# Automatically align, calibrate metric scale, square walls to X/Y, and clean
+python align_pcd.py -i raw_slam_scan.ply -o aligned_scan.ply --preview
+```
+
+This tool automatically detects the vertical axis (+Z Up), aligns walls to the Manhattan frame (X/Y axes) via 4-fold periodic voting, grounds the floor at Z=0, and calibrates metric room scale. You can also refer to [3D-PointCloud-Aligner Tuning Guide](https://github.com/A511-git/3D-PointCloud-Aligner/blob/main/TUNING_GUIDE.md) for custom sensor presets (e.g. `--preset arkit`).
 
 |                     Before Alignment                     |                    After Alignment                    |
 | :------------------------------------------------------: | :---------------------------------------------------: |

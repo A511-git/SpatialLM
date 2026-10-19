@@ -1,0 +1,3 @@
+[submodule "3D-PointCloud-Aligner"]
+	path = 3D-PointCloud-Aligner
+	url = https://github.com/A511-git/3D-PointCloud-Aligner.git
