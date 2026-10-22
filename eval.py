@@ -399,7 +399,16 @@ if __name__ == "__main__":
     classwise_eval_tuples_50: Dict[str, List[EvalTuple]] = defaultdict(list)
     for scene_id in scene_id_list:
         log.info(f"Evaluating scene {scene_id}")
-        with open(os.path.join(args.pred_dir, f"{scene_id}.txt"), "r") as f:
+        pred_file = os.path.join(args.pred_dir, f"{scene_id}.txt")
+        if not os.path.exists(pred_file):
+            alt1 = os.path.join(args.pred_dir, str(scene_id), "predicted_layout.txt")
+            alt2 = os.path.join(args.pred_dir, str(scene_id), f"{scene_id}.txt")
+            if os.path.exists(alt1):
+                pred_file = alt1
+            elif os.path.exists(alt2):
+                pred_file = alt2
+
+        with open(pred_file, "r") as f:
             pred_layout = Layout(f.read())
         with open(os.path.join(args.gt_dir, f"{scene_id}.txt"), "r") as f:
             gt_layout = Layout(f.read())

@@ -29,22 +29,25 @@ Instead of manually running separate alignment, validation, and rendering script
 ```bash
 python inference.py \
     --point_cloud raw_slam_scan.ply \
-    --output predicted_layout.txt \
+    --output ./output \
     --model_path manycore-research/SpatialLM-Llama-1B \
     --align \
     --preset arkit \
     --target_height 2.65 \
-    --preview \
-    --save_aligned_pcd scene_aligned.ply \
-    --render_floorplan floorplan.png
+    --preview
 ```
 
 ### What this single command does automatically:
-1. **Automated Manhattan Alignment & Scale Calibration**: Leverages our official [3D-PointCloud-Aligner](https://github.com/A511-git/3D-PointCloud-Aligner) to orient the vertical axis (+Z Up), square walls to the Manhattan frame (X/Y axes) via 4-fold periodic normal voting, ground the floor at Z=0, and calibrate metric room scale.
-2. **Diagnostic Previews**: Automatically saves a 3-view orthogonal projection PNG (`scene_aligned_preview.png`) for instant verification.
+1. **Scene Output Directory Organization**: Automatically creates a dedicated subfolder `output/raw_slam_scan/` and saves all output artifacts directly inside it:
+   - `aligned.ply`: Calibrated, Manhattan-aligned point cloud (+Z up, centered, metric scaled).
+   - `alignment_preview.png`: 3-view orthogonal projection preview.
+   - `predicted_layout.txt`: Predicted walls, doors, windows, and 3D furniture boxes.
+   - `floorplan.png`: High-resolution, uncropped 2D architectural blueprint floor plan.
+   - `metadata.json`: Comprehensive scene metadata, object counts, and alignment transforms.
+2. **Automated Manhattan Alignment & Scale Calibration**: Leverages our official [3D-PointCloud-Aligner](https://github.com/A511-git/3D-PointCloud-Aligner) to orient the vertical axis (+Z Up), square walls to the Manhattan frame (X/Y axes) via 4-fold periodic normal voting, ground the floor at Z=0, and calibrate metric room scale.
 3. **Pre-Flight Validation**: Asserts point count, bounding spans, and floor level.
 4. **SpatialLM Inference**: Predicts walls, doors, windows, and 3D oriented furniture bounding boxes.
-5. **2D Architectural Blueprint Rendering**: Generates a high-resolution, uncropped 2D floor plan PNG (`floorplan.png`).
+5. **2D Architectural Blueprint Rendering**: Automatically renders and saves the 2D floor plan PNG.
 
 |                     Before Alignment                     |                    After Alignment                    |
 | :------------------------------------------------------: | :---------------------------------------------------: |

@@ -101,7 +101,8 @@ huggingface-cli download manycore-research/SpatialLM-Testset pcd/scene0000_00.pl
 Run inference:
 
 ```bash
-python inference.py --point_cloud pcd/scene0000_00.ply --output scene0000_00.txt --model_path manycore-research/SpatialLM1.1-Qwen-0.5B
+# Output folder mode (auto-creates output/scene0000_00/ with layout text, floorplan, aligned pcd, etc.)
+python inference.py --point_cloud pcd/scene0000_00.ply --output ./output --model_path manycore-research/SpatialLM1.1-Qwen-0.5B
 ```
 
 ### Detection with user-specified categories
@@ -117,7 +118,7 @@ SpatialLM1.1 offers three variants of structured indoor modeling tasks:
 For tasks that include object box estimation, you can specify a subset of the 59 furniture categories, and the model will only predict objects within those specified categories. For example:
 
 ```bash
-python inference.py --point_cloud pcd/scene0000_00.ply --output scene0000_00.txt --model_path manycore-research/SpatialLM1.1-Qwen-0.5B --detect_type object --category bed nightstand
+python inference.py --point_cloud pcd/scene0000_00.ply --output ./output --model_path manycore-research/SpatialLM1.1-Qwen-0.5B --detect_type object --category bed nightstand
 ```
 
 ### Visualization
@@ -126,10 +127,10 @@ Use `rerun` to visualize the point cloud and the predicted structured 3D layout 
 
 ```bash
 # Convert the predicted layout to Rerun format
-python visualize.py --point_cloud pcd/scene0000_00.ply --layout scene0000_00.txt --save scene0000_00.rrd
+python visualize.py --point_cloud pcd/scene0000_00.ply --layout output/scene0000_00/predicted_layout.txt --save output/scene0000_00/scene.rrd
 
 # Visualize the point cloud and the predicted layout
-rerun scene0000_00.rrd
+rerun output/scene0000_00/scene.rrd
 ```
 
 ### Evaluation

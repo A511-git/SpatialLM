@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import json
 import argparse
 
 import torch
@@ -124,6 +125,7 @@ def generate_layout(
     max_new_tokens=4096,
     detect_type="all",
     categories=[],
+    repetition_penalty=1.1,
 ):
     if seed >= 0:
         set_seed(seed)
@@ -170,6 +172,9 @@ def generate_layout(
         use_cache=True,
         num_beams=num_beams,
     )
+
+    if repetition_penalty is not None and repetition_penalty > 1.0:
+        generate_kwargs["repetition_penalty"] = float(repetition_penalty)
 
     if do_sample:
         generate_kwargs["temperature"] = float(temperature)
@@ -218,8 +223,14 @@ if __name__ == "__main__":
         "-o",
         "--output",
         type=str,
-        required=True,
-        help="Path to the output layout txt file or a folder to save multiple layout txt files",
+        default="./output",
+        help="Path to output directory (a dedicated subfolder is created for each scene). Also supports legacy layout txt file paths.",
+    )
+    parser.add_argument(
+        "--repetition_penalty",
+        type=float,
+        default=1.1,
+        help="Repetition penalty for language model generation to prevent repetitive loops (default: 1.1)",
     )
     parser.add_argument(
         "-m",
@@ -400,13 +411,18 @@ if __name__ == "__main__":
     align_group.add_argument(
         "--preview",
         action="store_true",
-        help="Generate 3-view orthogonal diagnostic PNG preview of the aligned point cloud",
+        help="Generate 3-view orthogonal diagnostic PNG preview of the aligned point cloud (auto-saved in scene folder)",
     )
     align_group.add_argument(
         "--save_aligned_pcd",
         type=str,
         default=None,
-        help="Optional path to save the aligned point cloud (.ply) to disk",
+        help="Optional custom path to save the aligned point cloud (.ply) to disk. By default, auto-saved as 'aligned.ply' inside the scene folder when --align is active.",
+    )
+    align_group.add_argument(
+        "--no_save_aligned",
+        action="store_true",
+        help="Skip saving the aligned .ply point cloud file to disk",
     )
     align_group.add_argument(
         "--skip_validation",
@@ -422,7 +438,12 @@ if __name__ == "__main__":
         "--render_floorplan",
         type=str,
         default=None,
-        help="Path to save the rendered 2D architectural blueprint floor plan PNG (e.g. floorplan.png)",
+        help="Optional custom path to save the rendered 2D architectural blueprint floor plan PNG. By default, auto-saved as 'floorplan.png' inside the scene folder.",
+    )
+    render_group.add_argument(
+        "--no_floorplan",
+        action="store_true",
+        help="Skip rendering the 2D architectural blueprint floor plan",
     )
     args = parser.parse_args()
 
@@ -444,26 +465,48 @@ if __name__ == "__main__":
     else:
         point_cloud_files = glob.glob(os.path.join(args.point_cloud, "*.ply"))
 
+    # Normalize output directory (supports root-derived absolute paths, relative paths, and ~ expansion)
+    raw_output = os.path.expanduser(os.path.expandvars(args.output))
+    is_legacy_txt = bool(os.path.splitext(raw_output)[-1]) and not os.path.isdir(raw_output)
+
+    if not is_legacy_txt:
+        base_output_dir = os.path.abspath(raw_output)
+        os.makedirs(base_output_dir, exist_ok=True)
+    else:
+        base_output_dir = os.path.dirname(os.path.abspath(raw_output))
+        if base_output_dir:
+            os.makedirs(base_output_dir, exist_ok=True)
+
     for point_cloud_file in tqdm(point_cloud_files):
         # load the point cloud
         point_cloud = load_o3d_pcd(point_cloud_file)
         active_pcd_path = point_cloud_file
+        scene_stem = os.path.splitext(os.path.basename(point_cloud_file))[0]
+
+        # Determine dedicated scene output paths
+        if is_legacy_txt and len(point_cloud_files) == 1:
+            scene_dir = base_output_dir or "."
+            saved_layout_path = os.path.abspath(raw_output)
+            aligned_ply_path = args.save_aligned_pcd or os.path.join(scene_dir, f"{scene_stem}_aligned.ply")
+            preview_file = os.path.splitext(saved_layout_path)[0] + "_preview.png" if args.preview else None
+            target_floorplan_path = args.render_floorplan or (None if args.no_floorplan else os.path.splitext(saved_layout_path)[0] + "_floorplan.png")
+            metadata_path = os.path.splitext(saved_layout_path)[0] + "_metadata.json"
+        else:
+            scene_dir = os.path.join(base_output_dir, scene_stem)
+            os.makedirs(scene_dir, exist_ok=True)
+            saved_layout_path = os.path.join(scene_dir, "predicted_layout.txt")
+            aligned_ply_path = args.save_aligned_pcd or os.path.join(scene_dir, "aligned.ply")
+            preview_file = os.path.join(scene_dir, "alignment_preview.png") if args.preview else None
+            target_floorplan_path = args.render_floorplan or (None if args.no_floorplan else os.path.join(scene_dir, "floorplan.png"))
+            metadata_path = os.path.join(scene_dir, "metadata.json")
 
         # ----------------------------------------------------
         # 1. Integrated 3D Point Cloud Alignment & Validation
         # ----------------------------------------------------
         should_align = args.align or (args.preset is not None)
+        alignment_meta = None
         if should_align:
             print(f"\n[Pipeline] Aligning '{os.path.basename(point_cloud_file)}' to ScanNet convention...")
-            preview_file = None
-            if args.preview:
-                if args.save_aligned_pcd:
-                    preview_file = os.path.splitext(args.save_aligned_pcd)[0] + "_preview.png"
-                elif os.path.splitext(args.output)[-1]:
-                    preview_file = os.path.splitext(args.output)[0] + "_preview.png"
-                else:
-                    preview_file = os.path.splitext(point_cloud_file)[0] + "_aligned_preview.png"
-
             if PointCloudPipeline is None:
                 raise ImportError(
                     "3D-PointCloud-Aligner could not be loaded. "
@@ -480,14 +523,16 @@ if __name__ == "__main__":
                 do_preview=args.preview,
                 do_validate=not args.skip_validation,
             )
-            point_cloud, meta = align_pipeline.process(
+
+            pcd_save_dest = None if args.no_save_aligned else aligned_ply_path
+            point_cloud, alignment_meta = align_pipeline.process(
                 point_cloud,
-                output_path=args.save_aligned_pcd,
+                output_path=pcd_save_dest,
                 preview_path=preview_file,
             )
-            if args.save_aligned_pcd:
-                active_pcd_path = args.save_aligned_pcd
-                print(f"[Pipeline] Saved aligned point cloud: {args.save_aligned_pcd}")
+            if pcd_save_dest:
+                active_pcd_path = pcd_save_dest
+                print(f"[Pipeline] Saved aligned point cloud: {pcd_save_dest}")
             if preview_file:
                 print(f"[Pipeline] Saved alignment preview: {preview_file}")
         elif not args.skip_validation:
@@ -522,37 +567,74 @@ if __name__ == "__main__":
             seed=args.seed,
             detect_type=args.detect_type,
             categories=args.category,
+            repetition_penalty=args.repetition_penalty,
         )
         layout.translate(min_extent)
         pred_language_string = layout.to_language_string()
 
-        # check if the output path is a file or directory
-        if os.path.splitext(args.output)[-1]:
-            saved_layout_path = args.output
-            with open(saved_layout_path, "w") as f:
-                f.write(pred_language_string)
-        else:
-            output_filename = os.path.basename(point_cloud_file).replace(".ply", ".txt")
-            os.makedirs(args.output, exist_ok=True)
-            saved_layout_path = os.path.join(args.output, output_filename)
-            with open(saved_layout_path, "w") as f:
-                f.write(pred_language_string)
+        # Save primary layout text
+        with open(saved_layout_path, "w") as f:
+            f.write(pred_language_string)
+        print(f"[Pipeline] Saved layout prediction: {saved_layout_path}")
+
+        # Also save <scene_stem>.txt inside scene folder for eval.py compatibility
+        legacy_named_txt = os.path.join(scene_dir, f"{scene_stem}.txt")
+        if legacy_named_txt != saved_layout_path:
+            try:
+                with open(legacy_named_txt, "w") as f:
+                    f.write(pred_language_string)
+            except Exception:
+                pass
 
         # ----------------------------------------------------
         # 2. Integrated 2D Architectural Blueprint Floor Plan
         # ----------------------------------------------------
-        if args.render_floorplan:
-            if os.path.splitext(args.output)[-1] or os.path.splitext(args.render_floorplan)[-1]:
-                target_floorplan_path = args.render_floorplan
-            else:
-                os.makedirs(args.render_floorplan, exist_ok=True)
-                floorplan_filename = os.path.basename(point_cloud_file).replace(".ply", "_floorplan.png")
-                target_floorplan_path = os.path.join(args.render_floorplan, floorplan_filename)
-
+        if target_floorplan_path and not args.no_floorplan:
             print(f"\n[Pipeline] Rendering 2D architectural blueprint floor plan...")
-            render_floorplan(
-                layout_path=saved_layout_path,
-                pcd_path=active_pcd_path,
-                output_path=target_floorplan_path,
-            )
-            print(f"[Pipeline] Architectural floor plan saved to: {target_floorplan_path}")
+            try:
+                render_floorplan(
+                    layout_path=saved_layout_path,
+                    pcd_path=active_pcd_path,
+                    output_path=target_floorplan_path,
+                )
+                print(f"[Pipeline] Architectural floor plan saved to: {target_floorplan_path}")
+            except Exception as e:
+                print(f"[Pipeline Warning] Could not render floor plan: {e}")
+
+        # ----------------------------------------------------
+        # 3. Scene Metadata & Execution Summary
+        # ----------------------------------------------------
+        try:
+            metadata = {
+                "scene_name": scene_stem,
+                "source_point_cloud": os.path.abspath(point_cloud_file),
+                "output_directory": scene_dir,
+                "model_path": args.model_path,
+                "detect_type": args.detect_type,
+                "detected_counts": {
+                    "walls": len(layout.walls),
+                    "doors": len(layout.doors),
+                    "windows": len(layout.windows),
+                    "boxes": len(layout.bboxes),
+                    "categories": {},
+                },
+                "artifacts": {
+                    "layout_txt": saved_layout_path,
+                    "floorplan_png": target_floorplan_path if not args.no_floorplan else None,
+                    "aligned_ply": active_pcd_path if (should_align and not args.no_save_aligned) else None,
+                    "alignment_preview": preview_file if (should_align and args.preview) else None,
+                },
+            }
+            for b in layout.bboxes:
+                cat = getattr(b, "category", "box")
+                metadata["detected_counts"]["categories"][cat] = (
+                    metadata["detected_counts"]["categories"].get(cat, 0) + 1
+                )
+            if alignment_meta:
+                metadata["alignment"] = alignment_meta
+
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+            print(f"[Pipeline] Saved scene metadata summary: {metadata_path}\n")
+        except Exception as e:
+            print(f"[Pipeline Warning] Could not write metadata summary: {e}\n")
